@@ -3,4 +3,4 @@
 set -e
 set -x
 
-node dist_back/skymp5-server.js
+node dist_back/skymp5-server.js --config-type=indev

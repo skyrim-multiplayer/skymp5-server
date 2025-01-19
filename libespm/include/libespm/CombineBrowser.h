@@ -3,8 +3,11 @@
 #include "GroupStack.h"
 #include "IdMapping.h"
 #include "LookupResult.h"
+#include "antigo/ResolvedContext.h"
 
 namespace espm {
+
+extern Antigo::ResolvedContext g_lastForm0Lookup;
 
 class RecordHeader;
 class Browser;

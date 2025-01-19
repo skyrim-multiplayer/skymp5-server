@@ -96,6 +96,7 @@ export class Settings {
     parser.add_argument('--port');
     parser.add_argument('--ip');
     parser.add_argument('--offlineMode');
+    parser.add_argument('--config-type');
     return parser.parse_args();
   }
 

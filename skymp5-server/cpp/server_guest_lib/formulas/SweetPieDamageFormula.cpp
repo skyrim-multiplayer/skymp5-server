@@ -11,6 +11,7 @@
 #include "HitData.h"
 #include "MpActor.h"
 #include "SpellCastData.h"
+#include "antigo/Context.h"
 #include "libespm/Loader.h"
 #include "libespm/espm.h"
 
@@ -27,6 +28,8 @@ SweetPieDamageFormula::SweetPieDamageFormula(
 SweetPieDamageFormulaSettings SweetPieDamageFormula::ParseConfig(
   const nlohmann::json& config) const
 {
+  ANTIGO_CONTEXT_INIT(ctx);
+
   SweetPieDamageFormulaSettings result{};
 
   for (const auto& level : config["damageMultByLevel"]) {

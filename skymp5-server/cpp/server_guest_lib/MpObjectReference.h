@@ -74,7 +74,7 @@ using SetAngleMode = SetPosMode;
 
 class MpObjectReference
   : public MpForm
-  , public FormIndex
+  , public FormIndex//бля
   , protected ChangeFormGuard
 {
   friend class OccupantDestroyEventSink;
