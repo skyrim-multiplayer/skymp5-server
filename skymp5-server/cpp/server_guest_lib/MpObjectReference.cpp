@@ -16,12 +16,16 @@
 #include "TimeUtils.h"
 #include "UpdatePropertyMessage.h"
 #include "WorldState.h"
+#include "antigo/Context.h"
+#include "antigo/ResolvedContext.h"
 #include "gamemode_events/ActivateEvent.h"
 #include "gamemode_events/PutItemEvent.h"
 #include "gamemode_events/TakeItemEvent.h"
 #include "libespm/CompressedFieldsCache.h"
 #include "libespm/Convert.h"
 #include "libespm/GroupUtils.h"
+#include "libespm/LookupResult.h"
+#include "libespm/NPC_.h"
 #include "libespm/Utils.h"
 #include "papyrus-vm/Reader.h"
 #include "papyrus-vm/Utils.h" // stricmp
@@ -31,6 +35,7 @@
 #include <map>
 #include <numeric>
 #include <optional>
+#include <stdexcept>
 
 #include "OpenContainerMessage.h"
 #include "TeleportMessage.h"
@@ -140,6 +145,7 @@ public:
   std::optional<PrimitiveData> primitive;
   bool teleportFlag = false;
   bool setPropertyCalled = false;
+  Antigo::ResolvedContext setPropertyCaller;
 };
 
 namespace {
@@ -705,6 +711,7 @@ void MpObjectReference::SetProperty(const std::string& propertyName,
                                     bool isVisibleByOwner,
                                     bool isVisibleByNeighbor)
 {
+  ANTIGO_CONTEXT_INIT(ctx);
   auto msg = CreatePropertyMessage(this, propertyName.c_str(), newValue);
   EditChangeForm([&](MpChangeFormREFR& changeForm) {
     changeForm.dynamicFields.Set(propertyName, std::move(newValue));
@@ -717,6 +724,7 @@ void MpObjectReference::SetProperty(const std::string& propertyName,
     }
   }
   pImpl->setPropertyCalled = true;
+  pImpl->setPropertyCaller = ctx.Resolve();
 }
 
 void MpObjectReference::SetTeleportFlag(bool value)
@@ -1122,6 +1130,8 @@ MpObjectReference::GetNextRelootMoment() const
 
 MpChangeForm MpObjectReference::GetChangeForm() const
 {
+  ANTIGO_CONTEXT_INIT(ctx);
+
   MpChangeForm res = ChangeForm();
 
   if (GetParent() && !GetParent()->espmFiles.empty()) {
@@ -1131,13 +1141,24 @@ MpChangeForm MpObjectReference::GetChangeForm() const
     res.formDesc = res.baseDesc = FormDesc(GetFormId(), "");
   }
 
+  // res.noSaveRequestor = ctx.Resolve();
+
   return res;
 }
 
 void MpObjectReference::ApplyChangeForm(const MpChangeForm& changeForm)
 {
+  ANTIGO_CONTEXT_INIT(ctx);
+  auto g = ctx.AddLambdaWithRef([&changeForm]() { return MpChangeForm::ToJson(changeForm).dump(2); });
+  g.Arm();
+
   if (pImpl->setPropertyCalled) {
     GetParent()->logger->critical("ApplyChangeForm called after SetProperty");
+    auto g = ctx.AddLambdaWithRef([this]() { return pImpl->setPropertyCaller.ToString(); });
+    g.Arm();
+    ctx.Resolve().Print();
+    std::cout << std::flush;
+    std::cerr << std::flush;
     std::terminate();
   }
 
@@ -1147,6 +1168,9 @@ void MpObjectReference::ApplyChangeForm(const MpChangeForm& changeForm)
 
   const auto currentBaseId = GetBaseId();
   const auto newBaseId = changeForm.baseDesc.ToFormId(GetParent()->espmFiles);
+  ctx.AddMessage("next: current, new base id");
+  ctx.AddUnsigned(currentBaseId);
+  ctx.AddUnsigned(newBaseId);
   if (currentBaseId != newBaseId) {
     spdlog::error("Anomaly, baseId should never change ({:x} => {:x})",
                   currentBaseId, newBaseId);
@@ -1261,6 +1285,7 @@ void MpObjectReference::SendPapyrusEvent(const char* eventName,
                                          const VarValue* arguments,
                                          size_t argumentsCount)
 {
+  ANTIGO_CONTEXT_INIT(ctx);
   if (!pImpl->scriptsInited) {
     InitScripts();
     pImpl->scriptsInited = true;
@@ -1636,6 +1661,8 @@ void MpObjectReference::UnsubscribeFromAll()
 
 void MpObjectReference::InitScripts()
 {
+  ANTIGO_CONTEXT_INIT(ctx);
+
   auto baseId = GetBaseId();
   if (!baseId || !GetParent()->espm) {
     return;
@@ -1684,6 +1711,10 @@ void MpObjectReference::InitScripts()
     auto& scriptsInStorage =
       GetParent()->GetScriptStorage()->ListScripts(false);
     for (auto& script : scriptData->scripts) {
+      ANTIGO_CONTEXT_INIT(ctx);
+      auto g = ctx.AddLambdaWithRef([&script]() { return script.scriptName; });
+      g.Arm();
+
       if (scriptsInStorage.count(
             { script.scriptName.begin(), script.scriptName.end() })) {
 
@@ -1691,9 +1722,13 @@ void MpObjectReference::InitScripts()
                        script.scriptName) == 0) {
           scriptNames.push_back(script.scriptName);
         }
-      } else if (auto wst = GetParent())
-        wst->logger->warn("Script '{}' not found in the script storage",
-                          script.scriptName);
+      } else {
+        if (auto wst = GetParent()) {
+          wst->logger->warn("Script '{}' not found in the script storage",
+                            script.scriptName);
+        }
+        ctx.Resolve().Print();
+      }
     }
   }
 
@@ -1721,6 +1756,7 @@ void MpObjectReference::InitScripts()
 
   // A hardcoded hack to remove unsupported scripts
   // TODO: make is a server setting with proper conditions or an API
+  /*
   auto isScriptEraseNeeded = [](const std::string& val) {
     // 1. GetStage in OnTrigger
     // 2. Unable to determine Actor for 'Game.GetPlayer' in 'OnLoad'
@@ -1735,6 +1771,7 @@ void MpObjectReference::InitScripts()
   scriptNames.erase(std::remove_if(scriptNames.begin(), scriptNames.end(),
                                    isScriptEraseNeeded),
                     scriptNames.end());
+  */
 
   if (!scriptNames.empty()) {
     pImpl->scriptState = std::make_unique<ScriptState>();
@@ -1796,6 +1833,8 @@ std::vector<espm::CONT::ContainerObject> GetOutfitObjects(
   WorldState* worldState, const std::vector<FormDesc>& templateChain,
   const espm::LookupResult& lookupRes)
 {
+  ANTIGO_CONTEXT_INIT(ctx);
+
   auto& compressedFieldsCache = worldState->GetEspmCache();
 
   std::vector<espm::CONT::ContainerObject> res;
@@ -1804,8 +1843,15 @@ std::vector<espm::CONT::ContainerObject> GetOutfitObjects(
     auto baseId = lookupRes.ToGlobalId(lookupRes.rec->GetId());
     auto outfitId = EvaluateTemplate<espm::NPC_::UseInventory>(
       worldState, baseId, templateChain,
-      [](const auto& npcLookupRes, const auto& npcData) {
-        return npcLookupRes.ToGlobalId(npcData.defaultOutfitId);
+      [](const espm::LookupResult& npcLookupRes, const espm::NPC_::Data& npcData) {
+        ANTIGO_CONTEXT_INIT(ctx);
+        auto result = npcLookupRes.ToGlobalId(npcData.defaultOutfitId);
+        if (result == 0) {
+          ctx.AddMessage("evaluated NPC template - outfitId (global) is 0; next: npcData.defaultOutfitId");
+          ctx.AddUnsigned(npcData.defaultOutfitId);
+          ctx.Orphan();
+        }
+        return result;
       });
 
     auto outfitLookupRes =
@@ -1866,6 +1912,8 @@ void MpObjectReference::AddContainerObject(
 
 void MpObjectReference::EnsureBaseContainerAdded(espm::Loader& espm)
 {
+  ANTIGO_CONTEXT_INIT(ctx);
+
   if (ChangeForm().baseContainerAdded) {
     return;
   }
@@ -1875,12 +1923,23 @@ void MpObjectReference::EnsureBaseContainerAdded(espm::Loader& espm)
     return;
   }
 
+  ctx.AddMessage("next: AsActor(), templateChain, lookupRes.rec");
+
   auto actor = AsActor();
+  ctx.AddPtr(actor);
   const std::vector<FormDesc> kEmptyTemplateChain;
   const std::vector<FormDesc>& templateChain =
     actor ? actor->GetTemplateChain() : kEmptyTemplateChain;
+  ctx.AddLambdaWithOwned([templateChain]{
+    std::string s = "[\n";
+    for (const auto& elt : templateChain) {
+      s += "  " + elt.ToString() + "\n";
+    }
+    return s + "]";
+  });
 
   auto lookupRes = espm.GetBrowser().LookupById(GetBaseId());
+  ctx.AddPtr(lookupRes.rec);
 
   std::map<uint32_t, uint32_t> itemsToAdd, itemsToEquip;
 

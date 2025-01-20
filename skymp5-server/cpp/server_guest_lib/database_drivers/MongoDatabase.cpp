@@ -1,6 +1,7 @@
 #include "MongoDatabase.h"
 
 #include "JsonUtils.h"
+#include "antigo/Context.h"
 
 #ifndef NO_MONGO
 #  include <bsoncxx/builder/stream/document.hpp>
@@ -106,6 +107,8 @@ std::vector<std::optional<MpChangeForm>>&& MongoDatabase::UpsertImpl(
 
 void MongoDatabase::Iterate(const IterateCallback& iterateCallback)
 {
+  ANTIGO_CONTEXT_INIT(ctx);
+
   constexpr int kBatchSize = 1001;
   mongocxx::options::find findOptions;
   findOptions.batch_size(kBatchSize);

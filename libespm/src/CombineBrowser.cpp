@@ -7,6 +7,9 @@
 #include <memory>
 #include <unordered_set>
 
+#include "antigo/Context.h"
+#include "antigo/ResolvedContext.h"
+
 namespace espm {
 
 int32_t CombineBrowser::Impl::GetFileIndex(const char* fileName) const noexcept
@@ -22,8 +25,16 @@ int32_t CombineBrowser::Impl::GetFileIndex(const char* fileName) const noexcept
   return -1;
 }
 
+Antigo::ResolvedContext g_lastForm0Lookup;
+
 LookupResult CombineBrowser::LookupById(uint32_t combFormId) const noexcept
 {
+  ANTIGO_CONTEXT_INIT(ctx);
+  if (combFormId == 0) {
+    ctx.AddMessage("trying to resolve form id 0");
+    g_lastForm0Lookup = ctx.Resolve();
+    g_lastForm0Lookup.Print();
+  }
   const RecordHeader* resRec = nullptr;
   uint8_t resFileIdx = 0;
   for (size_t i = 0; i < pImpl->numSources; ++i) {
