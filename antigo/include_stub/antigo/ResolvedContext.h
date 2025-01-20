@@ -28,8 +28,8 @@ struct ResolvedContext {
 
   std::string ToString() const;
   void Print() const;
-
-  friend std::ostream& operator<<(std::ostream& os, const ResolvedContext& self) { return os; }
 };
+
+std::ostream& operator<<(std::ostream& os, const ResolvedContext& self);
 
 }
